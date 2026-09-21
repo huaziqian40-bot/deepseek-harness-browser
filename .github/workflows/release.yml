@@ -1,0 +1,24 @@
+name: build-release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build install zip (dsh-tool-browser/ top folder)
+        run: |
+          set -e
+          rm -rf _dist dsh-tool-browser.zip
+          mkdir -p _dist/dsh-tool-browser
+          cp -r manifest.json README.md LICENSE package.json lib client _dist/dsh-tool-browser/
+          (cd _dist && zip -qr ../dsh-tool-browser.zip dsh-tool-browser)
+          unzip -l dsh-tool-browser.zip
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dsh-tool-browser.zip
+          generate_release_notes: true

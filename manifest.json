@@ -1,0 +1,28 @@
+{
+  "name": "dsh-tool-browser",
+  "displayName": "Shared Browser 多标签版 (Multi-Tab)",
+  "version": "2.0.1",
+  "description": "云端共享浏览器：有头 Chromium（Xvfb）、实时画面、live 光标、输入回显、HTML5 拖拽、多标签页；附发布/分发页，任何 dsh harness 均可安装。",
+  "entry": "lib/index.js",
+  "client": ["client/widget.js", "client/publish.html", "client/install.sh"],
+  "routes": {
+    "publish": "/publish",
+    "widget": "/api/browser/widget.js",
+    "status": "/api/browser/status",
+    "ws": "/api/browser/ws",
+    "mjpeg": "/api/browser/mjpeg",
+    "download": "/plugin/download",
+    "readme": "/plugin/readme",
+    "manifest": "/plugin/manifest",
+    "install": "/plugin/install.sh"
+  },
+  "config": {
+    "viewportWidth": 1280,
+    "viewportHeight": 800,
+    "frameQuality": 58,
+    "frameIntervalMs": 66,
+    "frameMaxDimension": 1280
+  },
+  "dependencies": ["ws", "schemastery"],
+  "optional": ["Xvfb (有头模式)", "fonts-noto-cjk", "chromium"]
+}

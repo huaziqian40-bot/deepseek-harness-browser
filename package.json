@@ -1,0 +1,16 @@
+{
+  "name": "dsh-tool-browser",
+  "description": "Shared Browser (Multi-Tab) plugin for the DeepSeek Harness Web GUI: headful Chromium with live screen sharing, agent-side browser tools, and a user-facing shared-view widget.",
+  "version": "2.0.1",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cdp": "./lib/cdp.mjs",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}
