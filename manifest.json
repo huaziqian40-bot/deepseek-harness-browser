@@ -1,8 +1,8 @@
 {
   "name": "dsh-tool-browser",
   "displayName": "Shared Browser 多标签版 (Multi-Tab)",
-  "version": "2.0.1",
-  "description": "云端共享浏览器：有头 Chromium（Xvfb）、实时画面、live 光标、输入回显、HTML5 拖拽、多标签页；附发布/分发页，任何 dsh harness 均可安装。",
+  "version": "2.1.0",
+  "description": "云端共享浏览器：有头 Chromium（Xvfb）、实时画面、live 光标、输入回显、HTML5 拖拽、多标签页、Edge 风格布局、仅观看/操作双模式、窗口可拉伸；附发布/分发页，任何 dsh harness 均可安装。",
   "entry": "lib/index.js",
   "client": ["client/widget.js", "client/publish.html", "client/install.sh"],
   "routes": {

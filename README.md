@@ -1,4 +1,4 @@
-# dsh-tool-browser 2.0.1 — 共享浏览器插件 · 多标签版 (Shared Browser Multi-Tab)
+# dsh-tool-browser 2.1.0 — 共享浏览器插件 · 多标签版 (Shared Browser Multi-Tab)
 
 让任何 DeepSeek Harness (`dsh web`) 实例获得一个 **云端共享浏览器**：
 真实有头的 Chromium（Xvfb 虚拟显示），支持实时画面（二进制 JPEG 帧 + 硬件解码）、
@@ -17,6 +17,9 @@ live 光标、点击/按键/拖拽即时回显、发布页 `/publish`，以及�
 | ⚡ 实时画面 | WebSocket 二进制 JPEG 帧（非 base64），前端 `createImageBitmap` 硬件解码，约 15fps |
 | 🖱️ 即时反馈 | live 光标广播（≈25Hz）、鼠标按下/松开波纹、按键高亮 —— 输入立刻可见 |
 | 🤝 人机协同 | 页面右下角 🌐 面板与 Agent 共享同一浏览器实例，可同时操作 |
+| 🧭 历史导航 | 前进 / 后退 / 历史记录下拉（`Page.getNavigationHistory`），跨标签独立 |
+| 👁 双模式 | 默认「仅观看模式」（只留标签/截屏/紧急关闭/画面，防抢操作），一键切「用户操作模式」；操作模式下 Agent 写工具自动拒绝 |
+| 📐 可拉伸 | 面板右下/右/下三处把手拖拽拉伸，页面视口随窗口同步缩放并记忆尺寸 |
 | 🎯 拖拽 | 滑块/画布/JS 拖动走合并式鼠标事件（无积压、跟手）；HTML5 `draggable` 自动走 `Input.dispatchDragEvent` 原生式拖放 |
 | 📦 一键分发 | `/plugin/download` 返回本插件 ZIP，任何 dsh 实例解压即装 |
 | 🛡️ 授权访问 | WS / 状态 / MJPEG 走 harness token+HMAC cookie 鉴权；发布页与 widget.js 匿名可读（无密钥），匿名者无法控制浏览器 |
@@ -53,7 +56,7 @@ curl -sL https://<BASE>/plugin/install.sh | bash -s https://<BASE>
 1. **放入插件目录**（二选一）：
    ```bash
    # 解压到 profile 的 plugins 目录（dsh web 启动时自动加载）
-   unzip dsh-tool-browser-2.0.1.zip -d ~/.dsh/profiles/web/plugins/
+   unzip dsh-tool-browser-2.1.0.zip -d ~/.dsh/profiles/web/plugins/
    # 目录结构：
    #   ~/.dsh/profiles/web/plugins/dsh-tool-browser/{manifest.json, README.md,
    #     lib/{index.js,cdp.mjs}, client/{widget.js,publish.html,install.sh}}
@@ -82,7 +85,7 @@ curl -sL https://<BASE>/plugin/install.sh | bash -s https://<BASE>
 ## 🧪 验证
 
 - 打开 `{地址}/publish` → 右下角 🌐 → ▶ 启动 → 画面出现、点击/拖动/键盘即时回显
-- `curl {地址}/plugin/download -o dsh-tool-browser-2.0.1.zip && unzip -l dsh-tool-browser-2.0.1.zip`
+- `curl {地址}/plugin/download -o dsh-tool-browser-2.1.0.zip && unzip -l dsh-tool-browser-2.1.0.zip`
 - 仓库内自带回归测试（VM 环境）：
   - `ws-binary-test.mjs` 环回协议（二进制帧/尺寸/echo/cursor）
   - `ws-tunnel-test.mjs` 隧道往返
@@ -137,6 +140,7 @@ dsh-tool-browser/
 
 ## 📝 版本
 
+- 2.1.0 — 6 项改进：① 🌐 悬浮球可自由拖动并记忆位置；② 前进/后退/历史记录（CDP Page.getNavigationHistory）；③ 核实 cookie/localStorage 跨启动持久化（默认保留；profile 目录改用 `os.homedir()`，关闭时优先 CDP `Browser.close` 优雅退出以免丢失未落盘写入）；④ 默认「仅观看模式」+ 一键切换「用户操作模式」（仅观看模式保留标签页/截屏/紧急关闭/画面，用户输入前端+服务端双重拦截；操作模式时 Agent 写工具 `browser_click/type/key/navigate` 拒绝执行，防抢操作）；⑤ 按钮布局仿 Edge（标签条 → 导航栏「← → ⟳ 🏠 + 圆角地址栏 + 模式切换 + 🕘 历史 + 📷 + ⏹」→ 画面）；⑥ 面板可拉伸（右下/右/下三处把手，视口随窗口 debounce 同步缩放）。
 - 2.0.1 — 修复：AI 打字去重（keyDown 不再双写）、面板可拖出屏幕并记忆位置、CDP 拖动鼠标事件补 button 字段、一键安装脚本兼容默认 "[]" 补丁（自动重写/备份/幂等）。
 - 2.0.0 — 多标签版：多标签页（新开/切换/关闭，画面随活动标签走）+ 修复 agent 控制浏览器（tool 输出 lossless JSON）+ 有头共享浏览器 + 实时画面 + 拖拽 + 发布/分发页。
 - 1.0.0 — 首个可分发版本：有头共享浏览器 + 实时画面 + 拖拽 + 发布/分发页。
