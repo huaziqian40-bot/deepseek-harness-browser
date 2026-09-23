@@ -78,7 +78,7 @@ curl -sL https://<BASE>/plugin/install.sh | bash -s https://<BASE>
        viewportHeight: 800
        frameQuality: 58        # JPEG 质量 10-95
        frameIntervalMs: 66     # 广播间隔(ms)，越小越流畅
-       frameMaxDimension: 1280 # 帧最大边长
+       frameMaxDimension: 1024 # 帧最大边长（1024 对 ~880px 面板足够清晰，解码更省）
    ```
    然后重启 `dsh web`，用启动日志里的 URL + token 打开 `/publish` 即见发布页与共享浏览器面板。
 

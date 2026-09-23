@@ -21,7 +21,7 @@
     "viewportHeight": 800,
     "frameQuality": 58,
     "frameIntervalMs": 66,
-    "frameMaxDimension": 1280
+    "frameMaxDimension": 1024
   },
   "dependencies": ["ws", "schemastery"],
   "optional": ["Xvfb (有头模式)", "fonts-noto-cjk", "chromium"]

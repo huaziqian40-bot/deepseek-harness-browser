@@ -34,6 +34,7 @@
   let viewMode = "view"; // "view" = watch-only | "operate" = user drives
   let canGoBack = false;
   let canGoForward = false;
+  let navLoading = false; // true while switching tab / navigating (spinner shown)
 
   // ---------- DOM ----------
   const root = document.createElement("div");
@@ -88,6 +89,9 @@
       .dbw-urlgo:hover { background: rgba(255,255,255,.12); }
       .dbw-modebtn { border: 1px solid rgba(255,255,255,.2); border-radius: 99px; height: 32px; padding: 0 12px; font-size: 12px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
       .dbw-modebtn.view { background: rgba(255,255,255,.08); color: #b9c2d4; }
+      /* gentle pulse on the watch-only toggle so users notice they must switch */
+      .dbw-modebtn.view.pulse { animation: dbw-pulse 1.6s ease-in-out infinite; }
+      @keyframes dbw-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(79,124,255,.45); } 50% { box-shadow: 0 0 0 5px rgba(79,124,255,.12); } }
       .dbw-modebtn.operate { background: linear-gradient(135deg, #2ea06a, #37d67a); color: #06231a; font-weight: 700; }
       /* history dropdown */
       .dbw-hmenu { position: absolute; right: 12px; top: 96px; z-index: 8; width: 320px; max-height: 260px; overflow-y: auto; background: #1c212c; border: 1px solid rgba(255,255,255,.15); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.5); }
@@ -354,12 +358,17 @@
         placeholder.classList.add("done");
         canvas.style.display = "block"; // canvas starts display:none in CSS
       }
-      canvas.width = w;
-      canvas.height = h;
+      // Set the backing store only when the frame size actually changed —
+      // resetting canvas.width/height every frame re-allocates the buffer.
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
       const layoutChanged = layoutCanvas(w, h); // cached rects: no forced reflow
       if (layoutChanged) placeCursor(); // only re-anchor when geometry actually changed
       ctx2d.drawImage(bmp, 0, 0, w, h);
       bmp.close();
+      if (navLoading) hideNavLoading(); // a fresh frame means the switch finished
     } catch {
       /* skip frame */
     } finally {
@@ -384,11 +393,19 @@
       x.title = "关闭标签";
       x.addEventListener("click", (e) => {
         e.stopPropagation();
+        showNavLoading("正在关闭标签…");
         send({ type: "tabs", command: "close", id: t.id });
       });
       chip.appendChild(x);
       chip.addEventListener("click", () => {
-        if (t.id !== activeId) send({ type: "tabs", command: "activate", id: t.id });
+        if (t.id !== activeId) {
+          // optimistic highlight + spinner so switching feels instant, even
+          // while the new tab's screencast is still starting up
+          for (const c of tabsEl.querySelectorAll(".dbw-tab")) c.classList.remove("active");
+          chip.classList.add("active");
+          showNavLoading("正在切换标签…");
+          send({ type: "tabs", command: "activate", id: t.id });
+        }
       });
       tabsEl.appendChild(chip);
     }
@@ -396,7 +413,10 @@
     plus.className = "dbw-tab new";
     plus.textContent = "+ 新标签";
     plus.title = "新建空白标签";
-    plus.addEventListener("click", () => send({ type: "tabs", command: "new", url: "about:blank" }));
+    plus.addEventListener("click", () => {
+      showNavLoading("正在新建标签…");
+      send({ type: "tabs", command: "new", url: "about:blank" });
+    });
     tabsEl.appendChild(plus);
     tabsEl.style.display = list.length > 0 ? "flex" : "none";
     // Tab bar changes the stage height -> re-fit the canvas so clicks stay accurate.
@@ -572,6 +592,9 @@
     viewMode = mode === "operate" ? "operate" : "view";
     modeBtn.className = "dbw-modebtn " + viewMode;
     modeBtn.textContent = viewMode === "operate" ? "🖱 操作" : "👁 仅观看";
+    // In watch-only mode gently pulse the toggle so users notice they must
+    // switch to operate before the page accepts their clicks/typing.
+    modeBtn.classList.toggle("pulse", viewMode === "view");
     modeBtn.title = viewMode === "operate" ? "当前为操作模式，点击切回仅观看" : "当前为仅观看模式，点击切换到操作模式";
     refreshNavButtons();
     layoutSurface();
@@ -637,6 +660,19 @@
     placeCursor();
   }
 
+  // Loading feedback: switching tabs or navigating can take a moment (the new
+  // page must load and its screencast must restart) — show a spinner so the UI
+  // never looks frozen; hide it as soon as the next frame actually renders.
+  function showNavLoading(text) {
+    navLoading = true;
+    spinner.textContent = text || "⏳ 正在加载…";
+    spinner.classList.add("show");
+  }
+  function hideNavLoading() {
+    navLoading = false;
+    spinner.classList.remove("show");
+  }
+
   function surfaceRect() {
     return canvasRectCache;
   }
@@ -696,7 +732,7 @@
       e.preventDefault(); // block focus/drag-select default behaviour too
       if (!viewHintShown) {
         viewHintShown = true;
-        toast("👁 仅观看模式 —— 点击导航栏「🖱 操作」切换后可操作");
+        toast("👁 仅观看模式：请先点击导航栏右侧的「🖱 操作」按钮，才能点击/输入页面");
       }
       return;
     }
@@ -1050,6 +1086,7 @@
   function go(url) {
     const clean = (url || "").trim();
     if (!clean) return;
+    showNavLoading("正在打开…");
     if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(clean)) {
       send({ type: "url", url: clean.startsWith("//") ? location.protocol + clean : "https://" + clean });
     } else {
