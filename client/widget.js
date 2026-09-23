@@ -103,9 +103,9 @@
       .dbw-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #66708a; font-size: 13px; }
       .dbw-placeholder.done { display: none; }
       .dbw-bigicon { font-size: 44px; opacity: .7; }
-      .dbw-viewmask { position: absolute; inset: 0; z-index: 6; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #cdd6ea; font-size: 15px; font-weight: 600; background: rgba(8,10,16,.35); backdrop-filter: blur(1.5px); cursor: default; text-align: center; line-height: 1.5; }
-      .dbw-viewmask.show { display: flex; }
-      .dbw-viewmask small { font-weight: 400; font-size: 12px; color: #8b95ad; }
+      /* watch-only mode: NO overlay / NO blur — the page stays fully visible
+         and usable to look at; the mode state lives on the nav-bar toggle only */
+      .dbw-canvas.dbw-readonly { cursor: not-allowed; }
       .dbw-foot { padding: 6px 12px; font-size: 11px; color: #77809a; border-top: 1px solid rgba(255,255,255,.07); display: flex; justify-content: space-between; gap: 10px; flex: 0 0 auto; }
       .dbw-statusbar { display: flex; gap: 12px; }
       .dbw-toast { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); background: #1e2430; border: 1px solid rgba(255,255,255,.15); color: #dfe5f2; padding: 6px 12px; border-radius: 8px; font-size: 12px; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 5; }
@@ -182,7 +182,6 @@
         <div class="dbw-cursor" data-role="cursor"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M2 1 L2 14.5 L5.6 11.4 L8.2 16.2 L10.1 15.2 L7.6 10.6 L12.4 10.8 Z" fill="#ffffff" stroke="#1a1f2e" stroke-width="1.2"/></svg></div>
         <div class="dbw-ripple" data-role="ripple"></div>
         <div class="dbw-keyflash" data-role="keyflash"></div>
-        <div class="dbw-viewmask" data-role="viewmask">👁 仅观看模式<br /><small>点击导航栏「🖱 操作」切换到操作模式后即可操作</small></div>
         <div class="dbw-toast" data-role="toast"></div>
       </div>
       <div class="dbw-grip" data-role="grip" title="拖动拉伸窗口"></div>
@@ -216,7 +215,6 @@
   const cursorEl = root.querySelector('[data-role="cursor"]');
   const rippleEl = root.querySelector('[data-role="ripple"]');
   const keyflashEl = root.querySelector('[data-role="keyflash"]');
-  const viewmask = root.querySelector('[data-role="viewmask"]');
   const backBtn = root.querySelector('[data-role="back"]');
   const fwdBtn = root.querySelector('[data-role="forward"]');
   const refreshBtn = root.querySelector('[data-role="refresh"]');
@@ -572,7 +570,6 @@
     modeBtn.className = "dbw-modebtn " + viewMode;
     modeBtn.textContent = viewMode === "operate" ? "🖱 操作" : "👁 仅观看";
     modeBtn.title = viewMode === "operate" ? "当前为操作模式，点击切回仅观看" : "当前为仅观看模式，点击切换到操作模式";
-    viewmask.classList.toggle("show", running && viewMode === "view");
     refreshNavButtons();
     layoutSurface();
   }
@@ -589,7 +586,8 @@
     shotBtn.disabled = !running;
     stopBtn.disabled = !running;
     startBtn.style.display = running ? "none" : "";
-    // In watch-only mode the canvas stays visible but the mask blocks input.
+    // Watch-only: the page stays crystal-clear (no overlay); we only switch
+    // the cursor and keep input-forwarding gated in the handlers below.
     canvas.classList.toggle("dbw-readonly", running && viewMode === "view");
   }
 
@@ -661,10 +659,18 @@
   }
 
   // Watch-only mode: the user's own input is not forwarded (the server drops
-  // it too — defense in depth). The mask also physically blocks pointer events.
+  // it too — defense in depth). No overlay, so the page stays fully visible;
+  // a one-time toast hints at the mode when the user tries to interact.
+  let viewHintShown = false;
   const pointerSurface = canvas;
   pointerSurface.addEventListener("pointerdown", (e) => {
-    if (viewMode !== "operate") return;
+    if (viewMode !== "operate") {
+      if (!viewHintShown) {
+        viewHintShown = true;
+        toast("👁 仅观看模式 —— 点击导航栏「🖱 操作」切换后可操作");
+      }
+      return;
+    }
     e.preventDefault();
     pointerSurface.focus();
     try {
