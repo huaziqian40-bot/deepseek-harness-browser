@@ -65,7 +65,9 @@
       /* Edge-style tab strip (row 1) */
       .dbw-tabs { display: none; gap: 6px; padding: 6px 12px 4px; overflow-x: auto; align-items: center; background: rgba(13,17,28,.35); border-bottom: 1px solid rgba(255,255,255,.06); flex: 0 0 auto; }
       .dbw-tabs::-webkit-scrollbar { height: 4px; }
-      .dbw-tab { flex: 0 0 auto; max-width: 180px; padding: 5px 10px; border-radius: 8px 8px 0 0; border: 1px solid rgba(255,255,255,.12); border-bottom: 0; background: rgba(255,255,255,.05); color: #b9c2d4; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+      .dbw-tab { flex: 0 0 auto; max-width: 200px; padding: 5px 10px; border-radius: 8px 8px 0 0; border: 1px solid rgba(255,255,255,.12); border-bottom: 0; background: rgba(255,255,255,.05); color: #b9c2d4; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; overflow: hidden; }
+      .dbw-tab .label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .dbw-tab .x { flex: 0 0 auto; opacity: .55; font-size: 11px; padding: 0 2px; }
       .dbw-tab:hover { background: rgba(255,255,255,.12); }
       .dbw-tab.active { background: #20242e; color: #eef2fa; border-color: rgba(255,255,255,.22); font-weight: 700; }
       .dbw-tab .x { opacity: .55; font-size: 11px; padding: 0 2px; }
@@ -354,10 +356,10 @@
       }
       canvas.width = w;
       canvas.height = h;
-      layoutCanvas(w, h);
+      const layoutChanged = layoutCanvas(w, h); // cached rects: no forced reflow
+      if (layoutChanged) placeCursor(); // only re-anchor when geometry actually changed
       ctx2d.drawImage(bmp, 0, 0, w, h);
       bmp.close();
-      placeCursor(); // re-anchor the cursor to the fresh canvas geometry
     } catch {
       /* skip frame */
     } finally {
@@ -373,7 +375,8 @@
       chip.className = "dbw-tab" + (t.id === activeId ? " active" : "");
       chip.title = t.url || t.title || t.id;
       const label = document.createElement("span");
-      label.textContent = (t.title || t.url || "空白标签").slice(0, 24);
+      label.className = "label";
+      label.textContent = (t.title || t.url || "空白标签").slice(0, 40);
       chip.appendChild(label);
       const x = document.createElement("span");
       x.className = "x";
@@ -592,26 +595,50 @@
   }
 
   // ---------- layout ----------
+  // Cached geometry: reading getBoundingClientRect() forces synchronous layout
+  // (reflow), which on a 15fps video path stalls decoding and drops frames.
+  // Rectangles are refreshed ONLY on layout-changing events (resize, panel
+  // drag/stretch, tab-bar toggle, mode switch), never on the frame path.
+  let stageRectCache = { left: 0, top: 0, width: 0, height: 0 };
+  let canvasRectCache = { left: 0, top: 0, width: 0, height: 0 };
+
+  function refreshCanvasRect() {
+    const c = canvas.getBoundingClientRect();
+    canvasRectCache = { left: c.left, top: c.top, width: c.width, height: c.height };
+  }
+
+  function refreshRects() {
+    const s = stage.getBoundingClientRect();
+    stageRectCache = { left: s.left, top: s.top, width: s.width, height: s.height };
+    refreshCanvasRect();
+  }
+
+  // Fit the canvas into the stage. Returns true when the CSS size changed (so
+  // callers know to re-anchor the cursor). Uses cached stage rect; no reflow.
   function layoutCanvas(w, h) {
-    const stageRect = stage.getBoundingClientRect();
+    const stageRect = stageRectCache.width > 0 ? stageRectCache : stage.getBoundingClientRect();
     const pad = 4;
     const availW = stageRect.width - pad * 2;
     const availH = stageRect.height - pad * 2;
     const scale = Math.min(availW / w, availH / h, 1);
     const cssW = Math.max(1, Math.floor(w * scale));
     const cssH = Math.max(1, Math.floor(h * scale));
+    if (canvas.style.width === cssW + "px" && canvas.style.height === cssH + "px") return false;
     canvas.style.width = cssW + "px";
     canvas.style.height = cssH + "px";
+    refreshCanvasRect();
+    return true;
   }
 
   function layoutSurface() {
     canvas.style.display = "block";
+    refreshRects();
     layoutCanvas(canvas.width || vw, canvas.height || vh);
     placeCursor();
   }
 
   function surfaceRect() {
-    return canvas.getBoundingClientRect();
+    return canvasRectCache;
   }
 
   // ---------- input forwarding ----------
@@ -633,10 +660,11 @@
 
   // Map remote viewport coords to a position INSIDE .dbw-stage (the containing
   // block of the cursor/ripple elements). The canvas is centered in the stage,
-  // so stage-relative = canvas-absolute minus the stage origin.
+  // so stage-relative = canvas-absolute minus the stage origin. Cached rects —
+  // no reflow on this hot path.
   function toStage(x, y) {
-    const rect = surfaceRect();
-    const srect = stage.getBoundingClientRect();
+    const rect = canvasRectCache;
+    const srect = stageRectCache;
     const cw = canvas.width || vw;
     const ch = canvas.height || vh;
     return {
@@ -646,7 +674,7 @@
   }
 
   // Keep the cursor glued to the remote pointer position even when the layout
-  // shifts (tab bar, resize, tab switch) — re-anchored on every frame/layout.
+  // shifts (tab bar, resize, tab switch) — re-anchored on layout changes.
   function placeCursor() {
     if (!cursorVp) return;
     const pos = toStage(cursorVp.x, cursorVp.y);
@@ -654,7 +682,7 @@
     cursorEl.style.left = pos.x + "px";
     cursorEl.style.top = pos.y + "px";
     try {
-      globalThis.__DBW_CURSOR__ = { vp: { ...cursorVp }, pos, canvas: surfaceRect().toJSON(), stage: stage.getBoundingClientRect().toJSON() };
+      globalThis.__DBW_CURSOR__ = { vp: { ...cursorVp }, pos, canvas: canvasRectCache, stage: stageRectCache };
     } catch { /* debug hook */ }
   }
 
@@ -924,6 +952,7 @@
     const top = e.clientY - drag.dy;
     panel.style.left = Math.max(-(w - 60), Math.min(window.innerWidth - 60, left)) + "px";
     panel.style.top = Math.max(-10, Math.min(window.innerHeight - 40, top)) + "px";
+    refreshRects(); // panel moved -> cached stage/canvas rects are stale
   });
   head.addEventListener("pointerup", () => {
     if (drag) {
@@ -987,12 +1016,14 @@
     h = Math.max(PANEL_MIN_H, Math.min(window.innerHeight - 24, h));
     panel.style.width = w + "px";
     panel.style.height = h + "px";
+    refreshRects();
     scheduleResizeViewport();
   }
   function endResize() {
     if (!resizeDrag) return;
     resizeDrag = null;
     savePanelSize();
+    refreshRects();
     scheduleResizeViewport();
   }
   // After the panel settles, tell the server the page viewport should match
@@ -1001,8 +1032,11 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       if (!running) return;
-      const r = stage.getBoundingClientRect();
-      send({ type: "cmd", command: "resize", width: Math.round(r.width), height: Math.round(r.height) });
+      // use the cached stage rect (refreshed during resize); no extra reflow
+      const r = stageRectCache;
+      const w = Math.max(1, Math.round(r.width));
+      const h = Math.max(1, Math.round(r.height));
+      if (w !== 0 && h !== 0) send({ type: "cmd", command: "resize", width: w, height: h });
     }, 250);
   }
   root.querySelector('[data-role="grip"]').addEventListener("pointerdown", (e) => startResize(e, "se"));
@@ -1058,6 +1092,7 @@
   loadFabPos();
   loadPanelPos();
   loadPanelSize();
+  refreshRects();
   setStateChip();
   applyMode("view");
   connect();
