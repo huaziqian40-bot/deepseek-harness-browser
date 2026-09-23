@@ -665,6 +665,7 @@
   const pointerSurface = canvas;
   pointerSurface.addEventListener("pointerdown", (e) => {
     if (viewMode !== "operate") {
+      e.preventDefault(); // block focus/drag-select default behaviour too
       if (!viewHintShown) {
         viewHintShown = true;
         toast("👁 仅观看模式 —— 点击导航栏「🖱 操作」切换后可操作");
