@@ -22,8 +22,10 @@
   let reconnectTimer = null;
   let connected = false;
   let running = false;
-  let vw = 1280;
+  let vw = 1280; // real page viewport (CSS px) — the space input coords live in
   let vh = 800;
+  let frameW = 1280; // screencast frame pixels (may be downscaled)
+  let frameH = 800;
   let lastClick = { t: 0, x: -1, y: -1 };
   let frameCounter = 0;
   let fpsStart = 0;
@@ -35,6 +37,7 @@
   let canGoBack = false;
   let canGoForward = false;
   let navLoading = false; // true while switching tab / navigating (spinner shown)
+  let wantHistOpen = false; // true only when the user clicked 🕘 themselves
 
   // ---------- DOM ----------
   const root = document.createElement("div");
@@ -64,11 +67,15 @@
       .dbw-btn.primary { background: linear-gradient(135deg, #4f7cff, #7b61ff); }
       .dbw-btn.danger { background: rgba(255,91,91,.22); color: #ffb4b4; }
       /* Edge-style tab strip (row 1) */
-      .dbw-tabs { display: none; gap: 6px; padding: 6px 12px 4px; overflow-x: auto; align-items: center; background: rgba(13,17,28,.35); border-bottom: 1px solid rgba(255,255,255,.06); flex: 0 0 auto; }
+      .dbw-tabs { display: none; gap: 0; padding: 6px 12px 4px; overflow-x: auto; align-items: center; background: rgba(13,17,28,.35); border-bottom: 1px solid rgba(255,255,255,.06); flex: 0 0 auto; }
       .dbw-tabs::-webkit-scrollbar { height: 4px; }
       .dbw-tab { flex: 0 0 auto; max-width: 200px; padding: 5px 10px; border-radius: 8px 8px 0 0; border: 1px solid rgba(255,255,255,.12); border-bottom: 0; background: rgba(255,255,255,.05); color: #b9c2d4; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; overflow: hidden; }
       .dbw-tab .label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .dbw-tab .x { flex: 0 0 auto; opacity: .55; font-size: 11px; padding: 0 2px; }
+      /* Edge-style strip: tabs sit flush against each other (single shared
+         divider line), only the "+ new" button keeps its own spacing */
+      .dbw-tab + .dbw-tab { margin-left: -1px; }
+      .dbw-tab.new { margin-left: 8px; }
       .dbw-tab:hover { background: rgba(255,255,255,.12); }
       .dbw-tab.active { background: #20242e; color: #eef2fa; border-color: rgba(255,255,255,.22); font-weight: 700; }
       .dbw-tab .x { opacity: .55; font-size: 11px; padding: 0 2px; }
@@ -343,10 +350,13 @@
       /* ignore */
     }
     const dv = new DataView(buf);
-    const w = dv.getUint32(1);
+    const w = dv.getUint32(1); // FRAME pixels (screencast may downscale)
     const h = dv.getUint32(5);
-    vw = w;
-    vh = h;
+    frameW = w;
+    frameH = h;
+    // NOTE: vw/vh stay the real page viewport (from status.viewport) — input
+    // coordinates are CSS viewport pixels, NOT frame pixels. Mixing the two
+    // shifts every click whenever the screencast is downscaled.
     frameCounter++;
     if (fpsStart === 0) fpsStart = Date.now();
     if (frameCounter % 15 === 0) {
@@ -427,6 +437,7 @@
     tabsEl.style.display = list.length > 0 ? "flex" : "none";
     // Tab bar changes the stage height -> re-fit the canvas so clicks stay accurate.
     layoutSurface();
+    syncViewportToStage(); // tab strip appearing/disappearing changes the stage too
   }
 
   function siteIconFor(url) {
@@ -467,7 +478,13 @@
         hmenu.appendChild(item);
       }
     }
-    hmenu.hidden = false;
+    // Only open the dropdown when the user actually asked for it — history is
+    // also fetched on every status broadcast (to refresh back/forward state),
+    // and that must NOT pop the menu open.
+    if (wantHistOpen) {
+      wantHistOpen = false;
+      hmenu.hidden = false;
+    }
   }
 
   function handleMessage(msg) {
@@ -644,12 +661,14 @@
 
   // Fit the canvas into the stage. Returns true when the CSS size changed (so
   // callers know to re-anchor the cursor). Uses cached stage rect; no reflow.
+  // The canvas is scaled to FILL the stage (up as well as down) so the page
+  // covers the whole panel instead of floating in a checkered border.
   function layoutCanvas(w, h) {
     const stageRect = stageRectCache.width > 0 ? stageRectCache : stage.getBoundingClientRect();
-    const pad = 4;
+    const pad = 0; // no inner margin: the page fills the panel edge-to-edge
     const availW = stageRect.width - pad * 2;
     const availH = stageRect.height - pad * 2;
-    const scale = Math.min(availW / w, availH / h, 1);
+    const scale = Math.min(availW / w, availH / h);
     const cssW = Math.max(1, Math.floor(w * scale));
     const cssH = Math.max(1, Math.floor(h * scale));
     if (canvas.style.width === cssW + "px" && canvas.style.height === cssH + "px") return false;
@@ -693,11 +712,12 @@
     return m;
   }
 
+  // Map a pointer position inside the canvas to PAGE VIEWPORT coordinates
+  // (CSS px). Uses the real viewport, never the frame size — the screencast
+  // frame may be downscaled, and CDP input expects viewport pixels.
   function toViewport(e) {
     const rect = surfaceRect();
-    const cw = canvas.width || vw;
-    const ch = canvas.height || vh;
-    return { x: ((e.clientX - rect.left) / rect.width) * cw, y: ((e.clientY - rect.top) / rect.height) * ch };
+    return { x: ((e.clientX - rect.left) / rect.width) * vw, y: ((e.clientY - rect.top) / rect.height) * vh };
   }
 
   // Map remote viewport coords to a position INSIDE .dbw-stage (the containing
@@ -707,11 +727,9 @@
   function toStage(x, y) {
     const rect = canvasRectCache;
     const srect = stageRectCache;
-    const cw = canvas.width || vw;
-    const ch = canvas.height || vh;
     return {
-      x: rect.left - srect.left + (x / cw) * rect.width,
-      y: rect.top - srect.top + (y / ch) * rect.height
+      x: rect.left - srect.left + (x / vw) * rect.width,
+      y: rect.top - srect.top + (y / vh) * rect.height
     };
   }
 
@@ -973,6 +991,7 @@
     panel.classList.add("open");
     urlInput.focus();
     layoutSurface();
+    syncViewportToStage(); // page viewport follows the panel -> no dead margins
   }
 
   function loadPanelPosOnce() {
@@ -1009,6 +1028,8 @@
   root.querySelector('[data-role="max"]').addEventListener("click", () => {
     panel.classList.toggle("max");
     layoutSurface();
+    refreshRects();
+    scheduleResizeViewport(); // let the page viewport follow the new stage size
   });
 
   const head = panel.querySelector(".dbw-head");
@@ -1139,6 +1160,14 @@
       if (w !== 0 && h !== 0) send({ type: "cmd", command: "resize", width: w, height: h });
     }, 250);
   }
+  // Called after any layout event that changes the visible stage area (panel
+  // opened, tab strip shown/hidden, maximize, stretch). Keeping the page
+  // viewport equal to the stage makes the picture fill the panel edge-to-edge
+  // and keeps input mapping exactly 1:1.
+  function syncViewportToStage() {
+    if (!running) return;
+    scheduleResizeViewport();
+  }
   root.querySelector('[data-role="grip"]').addEventListener("pointerdown", (e) => startResize(e, "se"));
   root.querySelector('[data-role="gedge-r"]').addEventListener("pointerdown", (e) => startResize(e, "e"));
   root.querySelector('[data-role="gedge-b"]').addEventListener("pointerdown", (e) => startResize(e, "s"));
@@ -1182,8 +1211,12 @@
     applyMode(next); // optimistic; server broadcast confirms
   });
   histBtn.addEventListener("click", () => {
-    if (hmenu.hidden) send({ type: "nav", command: "history" });
-    else hmenu.hidden = true;
+    if (hmenu.hidden) {
+      wantHistOpen = true;
+      send({ type: "nav", command: "history" });
+    } else {
+      hmenu.hidden = true;
+    }
   });
   document.addEventListener("click", (e) => {
     if (!hmenu.hidden && !hmenu.contains(e.target) && e.target !== histBtn) hmenu.hidden = true;
