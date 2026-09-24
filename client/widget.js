@@ -131,6 +131,10 @@
       .dbw-gedge-r { position: absolute; top: 0; right: 0; width: 7px; height: 100%; z-index: 9; cursor: ew-resize; }
       .dbw-gedge-b { position: absolute; left: 0; bottom: 0; width: 100%; height: 7px; z-index: 9; cursor: ns-resize; }
       .dbw-panel:hover .dbw-grip { opacity: 1; }
+      /* invisible IME carrier: a real textarea holding focus so the user's
+         native IME (pinyin etc.) works; composed text is pushed to the shared
+         browser via CDP Input.insertText. Must NOT be display:none. */
+      .dbw-ime { position: absolute; left: 2px; top: 2px; width: 6px; height: 6px; padding: 0; border: 0; background: transparent; color: transparent; caret-color: transparent; opacity: 0; resize: none; overflow: hidden; outline: none; z-index: 0; }
       @media (prefers-color-scheme: light) {
         .dbw-panel { background: #f4f6fb; border-color: rgba(20,23,31,.15); color: #20242e; }
         .dbw-head { background: rgba(20,23,31,.04); }
@@ -189,6 +193,7 @@
         <div class="dbw-ripple" data-role="ripple"></div>
         <div class="dbw-keyflash" data-role="keyflash"></div>
         <div class="dbw-toast" data-role="toast"></div>
+        <textarea class="dbw-ime" data-role="ime" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" aria-label="共享浏览器中文输入"></textarea>
       </div>
       <div class="dbw-grip" data-role="grip" title="拖动拉伸窗口"></div>
       <div class="dbw-gedge-r" data-role="gedge-r"></div>
@@ -221,6 +226,7 @@
   const cursorEl = root.querySelector('[data-role="cursor"]');
   const rippleEl = root.querySelector('[data-role="ripple"]');
   const keyflashEl = root.querySelector('[data-role="keyflash"]');
+  const imeEl = root.querySelector('[data-role="ime"]');
   const backBtn = root.querySelector('[data-role="back"]');
   const fwdBtn = root.querySelector('[data-role="forward"]');
   const refreshBtn = root.querySelector('[data-role="refresh"]');
@@ -738,6 +744,16 @@
     }
     e.preventDefault();
     pointerSurface.focus();
+    // Park the hidden IME near the click point so the IME candidate window
+    // (pinyin etc.) pops up where the user is looking, then take focus so the
+    // native IME starts; clicks still go to CDP below.
+    imeEl.style.left = Math.max(2, e.clientX - stageRectCache.left) + "px";
+    imeEl.style.top = Math.max(2, e.clientY - stageRectCache.top + 10) + "px";
+    try {
+      imeEl.focus({ preventScroll: true });
+    } catch {
+      /* ignore */
+    }
     try {
       pointerSurface.setPointerCapture(e.pointerId);
     } catch {
@@ -788,6 +804,54 @@
     if (viewMode !== "operate") return;
     e.preventDefault();
     e.stopPropagation();
+    send({ type: "input", kind: "key", op: "keyUp", key: e.key, code: e.code, modifiers: mods(e) });
+  });
+
+  // --- native IME support (Chinese pinyin etc.) -----------------------------
+  // The hidden textarea holds focus so the user's own IME pops up; composed
+  // text is delivered to the shared browser via CDP Input.insertText, and the
+  // actual key events (Enter, Backspace, ...) are forwarded as before.
+  let composing = false;
+  imeEl.addEventListener("compositionstart", () => {
+    composing = true;
+  });
+  imeEl.addEventListener("compositionend", (e) => {
+    composing = false;
+    const text = (e.data || imeEl.value || "").trim();
+    imeEl.value = "";
+    if (text && viewMode === "operate") {
+      send({ type: "input", kind: "key", op: "insertText", text });
+      showKeyFlash(text.length > 4 ? "中文" : text);
+    }
+  });
+  imeEl.addEventListener("input", () => {
+    if (composing) return;
+    const val = imeEl.value;
+    if (val && viewMode === "operate") {
+      send({ type: "input", kind: "key", op: "insertText", text: val });
+      imeEl.value = "";
+    }
+  });
+  imeEl.addEventListener("keydown", (e) => {
+    if (viewMode !== "operate") return;
+    e.preventDefault();
+    e.stopPropagation();
+    // While the IME is composing, letters are IME keys, not text — don't
+    // forward them to the remote page.
+    if (composing) return;
+    const isPrintable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (isPrintable) {
+      send({ type: "input", kind: "key", op: "keyDown", key: e.key, code: e.code, modifiers: mods(e), repeat: e.repeat });
+      send({ type: "input", kind: "key", op: "char", key: e.key, code: e.code, modifiers: mods(e) });
+    } else {
+      send({ type: "input", kind: "key", op: "keyDown", key: e.key, code: e.code, modifiers: mods(e), repeat: e.repeat });
+    }
+  });
+  imeEl.addEventListener("keyup", (e) => {
+    if (viewMode !== "operate") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (composing) return;
     send({ type: "input", kind: "key", op: "keyUp", key: e.key, code: e.code, modifiers: mods(e) });
   });
 
