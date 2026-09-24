@@ -6,3 +6,4 @@ node_modules/
 .current-token*
 *访问信息*_private*
 _dist/
+poster/
