@@ -392,8 +392,15 @@
     }
   }
 
+  // Tabs are re-rendered only when the data actually changed: rebuilding the
+  // DOM unconditionally swallows clicks (the node under the cursor is replaced
+  // mid-click) and wastes work when tab messages repeat.
+  let lastTabsSig = "";
   function renderTabs(tabs, activeId) {
     const list = tabs || [];
+    const sig = (activeId || "") + "|" + list.map((t) => t.id + "\u0001" + (t.title || "") + "\u0001" + (t.url || "")).join("\u0002");
+    if (sig === lastTabsSig) return;
+    lastTabsSig = sig;
     tabsEl.innerHTML = "";
     for (const t of list) {
       const chip = document.createElement("button");
@@ -490,6 +497,7 @@
   function handleMessage(msg) {
     switch (msg.type) {
       case "status": {
+        const wasRunning = running;
         running = Boolean(msg.running);
         setStateChip();
         if (msg.title || msg.url) chipLink.textContent = `${msg.title || ""} — ${msg.url || ""}`;
@@ -504,13 +512,21 @@
         placeholder.classList.toggle("done", running);
         if (running) {
           chipMode.textContent = "⚡ 流畅流";
-          send({ type: "tabs", command: "list" });
-          send({ type: "nav", command: "history" });
+          // Fetch tabs/history only on the transition into "running" — status
+          // is rebroadcast on every resize/mode/tab change, and re-fetching
+          // each time caused a request storm that made tab switching unusable.
+          if (!wasRunning) {
+            lastTabsSig = ""; // force a fresh tab render on (re)start
+            send({ type: "tabs", command: "list" });
+            send({ type: "nav", command: "history" });
+          }
         } else {
           gotFirstFrame = false;
           cursorVp = null;
           cursorEl.classList.remove("show");
           tabsEl.style.display = "none";
+          lastTabsSig = "";
+          lastSyncedViewport = "";
           phText.textContent = "浏览器已关闭 —— 点击「▶ 启动」或让 Agent 执行 browser_launch";
           ctx2d.clearRect(0, 0, canvas.width, canvas.height);
         }
@@ -1164,8 +1180,18 @@
   // opened, tab strip shown/hidden, maximize, stretch). Keeping the page
   // viewport equal to the stage makes the picture fill the panel edge-to-edge
   // and keeps input mapping exactly 1:1.
+  // IDEMPOTENT: only fires when the target size differs from what we already
+  // asked for — otherwise the resize -> status -> tabs -> render -> resize
+  // chain would loop forever and starve real commands (tab switching).
+  let lastSyncedViewport = "";
   function syncViewportToStage() {
     if (!running) return;
+    const w = Math.round(stageRectCache.width);
+    const h = Math.round(stageRectCache.height);
+    if (w < 50 || h < 50) return; // not laid out yet
+    const sig = w + "x" + h;
+    if (sig === lastSyncedViewport) return;
+    lastSyncedViewport = sig;
     scheduleResizeViewport();
   }
   root.querySelector('[data-role="grip"]').addEventListener("pointerdown", (e) => startResize(e, "se"));
