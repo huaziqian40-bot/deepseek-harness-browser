@@ -435,10 +435,11 @@
     const plus = document.createElement("button");
     plus.className = "dbw-tab new";
     plus.textContent = "+ 新标签";
-    plus.title = "新建空白标签";
+    plus.title = "新建标签页（浏览器的开始页）";
     plus.addEventListener("click", () => {
       showNavLoading("正在新建标签…");
-      send({ type: "tabs", command: "new", url: "about:blank" });
+      // no url -> server opens the browser's own start page (not about:blank)
+      send({ type: "tabs", command: "new" });
     });
     tabsEl.appendChild(plus);
     tabsEl.style.display = list.length > 0 ? "flex" : "none";
